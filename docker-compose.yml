@@ -8,25 +8,26 @@ services:
     environment:
       # Token for gated models (e.g. Llama 3). Set HF_TOKEN in your .env file.
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+      - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
       # Persistent Hugging Face cache so model weights download only once.
       - hf-cache:/root/.cache/huggingface
     ipc: host
     command:
       - --model
-      - ${MODEL:-meta-llama/Meta-Llama-3.1-8B-Instruct}
+      - ${MODEL}
       - --gpu-memory-utilization
-      - "${GPU_MEMORY_UTILIZATION:-0.90}"
+      - "${GPU_MEMORY_UTILIZATION}"
       - --max-model-len
-      - "${MAX_MODEL_LEN:-4096}"
+      - "${MAX_MODEL_LEN}"
       - --tensor-parallel-size
-      - "${TENSOR_PARALLEL_SIZE:-1}"
+      - "${TENSOR_PARALLEL_SIZE}"
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: ${GPU_COUNT:-all}
+              device_ids: ['0']
               capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]

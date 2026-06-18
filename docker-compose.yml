@@ -1,16 +1,33 @@
-services:
+version: '3.8'
+
+x-common: &common
+  restart: unless-stopped
+  networks:
+    - smol-brain
+
+networks:
   smol-brain:
+    driver: bridge
+    name: smol-brain
+
+volumes:
+  hf-cache:
+    name: smol-brain-hf-cache
+  redis-data:
+    name: smol-brain-redis-data
+
+services:
+  # --------------------------------------------------------------------------
+  # vLLM inference engine (GPU required)
+  # --------------------------------------------------------------------------
+  smol-brain:
+    <<: *common
     image: vllm/vllm-openai:latest
-    container_name: smol-brain
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
+    container_name: smol-brain-vllm
     environment:
-      # Token for gated models (e.g. Llama 3). Set HF_TOKEN in your .env file.
       - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
       - NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:
-      # Persistent Hugging Face cache so model weights download only once.
       - hf-cache:/root/.cache/huggingface
     ipc: host
     command:
@@ -35,6 +52,114 @@ services:
       timeout: 10s
       retries: 5
       start_period: 300s
+    # Expose only internally; gateways connect via network.
+    expose:
+      - "8000"
 
-volumes:
-  hf-cache:
+  # --------------------------------------------------------------------------
+  # Redis (shared cache + rate limiting)
+  # --------------------------------------------------------------------------
+  redis:
+    <<: *common
+    image: redis:7-alpine
+    container_name: smol-brain-redis
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    ports:
+      # Expose Redis externally only if needed for debugging; gateways connect
+      # via the internal network.
+      - "6379:6379"
+
+  # --------------------------------------------------------------------------
+  # Python gateway (FastAPI + LangChain)
+  # --------------------------------------------------------------------------
+  python-gateway:
+    <<: *common
+    build:
+      context: ./services/python-gateway
+      dockerfile: Dockerfile
+    container_name: smol-brain-python-gateway
+    environment:
+      - GATEWAY_ENVIRONMENT=${GATEWAY_ENVIRONMENT:-production}
+      - GATEWAY_LOG_LEVEL=${GATEWAY_LOG_LEVEL:-INFO}
+      - GATEWAY_VLLM_BASE_URL=http://smol-brain:8000/v1
+      - GATEWAY_VLLM_API_KEY=${GATEWAY_VLLM_API_KEY:-not-needed}
+      - GATEWAY_MODEL_NAME=${MODEL}
+      - GATEWAY_REDIS_URL=redis://redis:6379/0
+      - GATEWAY_CACHE_ENABLED=${GATEWAY_CACHE_ENABLED:-true}
+      - GATEWAY_RATE_LIMIT_ENABLED=${GATEWAY_RATE_LIMIT_ENABLED:-true}
+      - GATEWAY_RATE_LIMIT_CAPACITY=${GATEWAY_RATE_LIMIT_CAPACITY:-120}
+      - GATEWAY_RATE_LIMIT_REFILL_PER_SECOND=${GATEWAY_RATE_LIMIT_REFILL_PER_SECOND:-2.0}
+      - GATEWAY_API_KEYS=${GATEWAY_API_KEYS}
+      - GATEWAY_API_KEY_HEADER=${GATEWAY_API_KEY_HEADER:-X-API-Key}
+      - GATEWAY_CORS_ALLOW_ORIGINS=${GATEWAY_CORS_ALLOW_ORIGINS}
+      - GATEWAY_WORKERS=${GATEWAY_WORKERS}
+      - GATEWAY_WORKER_TIMEOUT=${GATEWAY_WORKER_TIMEOUT:-180}
+    # Mount the gateway's own .env file if present (sensitive config).
+    env_file:
+      - ./services/python-gateway/.env
+    depends_on:
+      smol-brain:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # --------------------------------------------------------------------------
+  # Go gateway (planned)
+  # --------------------------------------------------------------------------
+  # go-gateway:
+  #   <<: *common
+  #   build:
+  #     context: ./services/go-gateway
+  #     dockerfile: Dockerfile
+  #   container_name: smol-brain-go-gateway
+  #   environment:
+  #     - GATEWAY_VLLM_URL=http://smol-brain:8000/v1
+  #     - GATEWAY_REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - smol-brain
+  #     - redis
+  #   ports:
+  #     - "8081:8080"
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3
+
+  # --------------------------------------------------------------------------
+  # Rust gateway (planned)
+  # --------------------------------------------------------------------------
+  # rust-gateway:
+  #   <<: *common
+  #   build:
+  #     context: ./services/rust-gateway
+  #     dockerfile: Dockerfile
+  #   container_name: smol-brain-rust-gateway
+  #   environment:
+  #     - GATEWAY_VLLM_URL=http://smol-brain:8000/v1
+  #     - GATEWAY_REDIS_URL=redis://redis:6379/0
+  #   depends_on:
+  #     - smol-brain
+  #     - redis
+  #   ports:
+  #     - "8082:8080"
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+  #     interval: 15s
+  #     timeout: 5s
+  #     retries: 3

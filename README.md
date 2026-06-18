@@ -1,24 +1,17 @@
 # 🧠 smol-brain
 
 > **Big models. Smol headaches.**  
-> A ridiculously easy, production-ready deployment stack for local LLMs using vLLM and Docker.
+> A production-ready deployment stack for local LLMs using vLLM and multiple gateway implementations.
 
 ![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=flat&logo=docker&logoColor=white)
 ![vLLM](https://img.shields.io/badge/Powered_by-vLLM-blue?style=flat)
 
-**smol-brain** is a containerized inference server designed to get large language models running on your own hardware in minutes. By wrapping [vLLM](https://github.com/vllm-project/vllm), it provides massive throughput via PagedAttention and continuous batching without the usual deployment headaches.
+**smol-brain** is a modular, containerized inference ecosystem designed to deploy large language models on your own hardware in minutes. It provides:
 
-It exposes an **OpenAI-compatible API** right out of the box. If your application already talks to ChatGPT, you can point it at `smol-brain` by simply swapping out the base URL—no client rewrites needed.
-
----
-
-## ✨ Features
-
-* **🐳 Docker-Native:** No more polluting your host machine. Say goodbye to CUDA version conflicts and dependency hell.
-* **⚡️ Blazing Fast:** Powered by vLLM for state-of-the-art inference speed and GPU utilization.
-* **🔄 OpenAI Drop-In:** Fully mirrors the OpenAI API (`/v1/chat/completions`). 
-* **💾 Persistent Caching:** Automatically mounts your Hugging Face cache so models only download once.
-* **🛠️ Production Ready:** Configured for concurrency handling and high GPU memory utilization out of the box.
+* **🎯 vLLM backend**: State-of-the-art GPU inference via [vLLM](https://github.com/vllm-project/vllm) with PagedAttention and continuous batching
+* **🚪 Multiple gateways**: Choose your preferred gateway implementation (Python, Go, Rust) with caching, rate limiting, and resilience
+* **🐳 Docker-Native**: No CUDA conflicts or dependency hell — everything runs in containers
+* **🔄 OpenAI Drop-In**: Fully compatible with OpenAI's API (`/v1/chat/completions`)
 
 ---
 
@@ -32,58 +25,190 @@ Before deploying `smol-brain`, ensure your host machine has:
 * A Hugging Face account and Access Token (for gated models like Llama 3).
 
 Verify your GPU is visible to Docker:
-`docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi`
+```bash
+docker run --rm --gpus all nvidia/cuda:12.4.0-base-ubuntu22.04 nvidia-smi
+```
+
+---
+
+## 🏗️ Architecture
+
+```
+smol-brain/
+├── docker-compose.yml           # Main orchestration (all services)
+├── services/
+│   ├── python-gateway/          # Async FastAPI gateway with LangChain + Redis caching
+│   │   ├── app/                 # Production-grade Python application
+│   │   ├── Dockerfile           # Multi-stage build, non-root user
+│   │   └── requirements.txt     # Pinned dependencies
+│   ├── go-gateway/              # (Planned) Go gateway with fiber/fasthttp
+│   └── rust-gateway/            # (Planned) Rust gateway with axum/tokio
+├── infra/
+│   └── redis/                   # Redis configuration and persistence
+├── docker-compose.vllm.yml      # vLLM-only composition (standalone)
+└── .env.example                 # Environment configuration
+```
+
+**Core services:**
+1. **vLLM**: The GPU inference engine (exposes OpenAI-compatible API on port 8000)
+2. **Redis**: Shared cache for all gateways (rate limiting, exact/semantic caching)
+3. **Gateway(s)**: HTTP frontends with auth, rate limiting, circuit breaking, observability
 
 ---
 
 ## 🚀 Quickstart
 
-The easiest way to launch your local AI is using the provided Docker Compose stack. 
+### Option 1: vLLM only (direct OpenAI-compatible API)
 
-**1. Clone the repository**
-`git clone https://github.com/mrcaelumn/smol-brain.git`
-`cd smol-brain`
+```bash
+# Clone and enter the workspace
+git clone https://github.com/mrcaelumn/smol-brain.git
+cd smol-brain
 
-**2. Set your Hugging Face token**
-`export HF_TOKEN="your_hugging_face_token_here"`
+# Set your Hugging Face token
+export HF_TOKEN="your_hugging_face_token_here"
 
-**3. Fire it up**
-`docker compose up -d`
-*Note: The first run will take a few minutes as it downloads the model weights to your local volume. Subsequent boots will take seconds.*
+# Start vLLM (GPU required)
+docker compose -f docker-compose.vllm.yml up -d
+```
+
+Test the direct vLLM API:
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer dummy-key" \
+  -d '{
+    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "messages": [
+      {"role": "user", "content": "Explain Docker in two sentences."}
+    ]
+  }'
+```
+
+### Option 2: Complete stack with Python gateway
+
+```bash
+# Copy environment template
+cp .env.example .env
+# Edit .env to set HF_TOKEN and API keys
+
+# Launch the full stack (vLLM + Redis + Python gateway)
+docker compose up -d
+```
+
+The Python gateway exposes:
+* **8080**: Gateway API (`/v1/chat`, `/healthz`, `/metrics`)
+* **8000**: vLLM direct API (internal only)
+* **6379**: Redis (internal only)
 
 ---
 
-## 🔌 Usage
+## 🔌 Gateway Features
 
-Once the container is running and the model is loaded, `smol-brain` will expose a server on port `8000`. 
+All gateways implement:
 
-Because it mimics the OpenAI API, you can test it immediately using `curl` or hook it up to any standard OpenAI SDK (Python, Rust, Go, etc.) by setting your client's base URL to `http://localhost:8000/v1` and passing in a dummy API key.
-
-`curl http://localhost:8000/v1/chat/completions \`
-  `-H "Content-Type: application/json" \`
-  `-H "Authorization: Bearer dummy-key" \`
-  `-d '{`
-    `"model": "meta-llama/Meta-Llama-3.1-8B-Instruct",`
-    `"messages": [`
-      `{"role": "user", "content": "Explain Docker in two sentences."}`
-    `]`
-  `}'`
+* **🔐 API key authentication** with constant-time comparison
+* **⏱️ Redis-backed rate limiting** (token bucket per key/IP)
+* **💾 Caching layers**:
+  - **Exact-match cache**: Identical prompts skip the GPU entirely
+  - **Semantic cache**: Similar prompts reuse answers (optional)
+* **⚡ Resilience**:
+  - Exponential backoff retry for transient vLLM failures
+  - Circuit breaker to fail fast when upstream is unhealthy
+* **📊 Observability**:
+  - Structured JSON logging (PII-free)
+  - Prometheus metrics at `/metrics`
+  - Liveness/readiness probes for Kubernetes
+* **🌐 Production hardening**:
+  - Async/await architecture (non-blocking)
+  - Connection pooling (Redis + HTTP)
+  - Graceful shutdown handlers
+  - Strict CORS configuration
 
 ---
 
-## ⚙️ Configuration
+## 🛠️ Service Configuration
 
-The default `docker-compose.yml` is configured for **Llama-3.1-8B-Instruct** on a single GPU. You can easily tweak the command arguments in the compose file to fit your hardware:
+### vLLM (GPU service)
+Edit `docker-compose.vllm.yml` or override via `.env`:
+```yaml
+environment:
+  MODEL: Qwen/Qwen3.5-2B
+  GPU_MEMORY_UTILIZATION: "0.75"
+  MAX_MODEL_LEN: "4096"
+  TENSOR_PARALLEL_SIZE: "1"
+```
 
-* `--model`: Change this to any model on the Hugging Face Hub (e.g., `Qwen/Qwen2.5-7B-Instruct`).
-* `--gpu-memory-utilization`: Set to `0.90` (90%) by default. Lower this if you are running other GPU workloads on the same machine.
-* `--max-model-len`: Limits the context window to save VRAM. Default is `4096`.
-* `--tensor-parallel-size`: If you have multiple GPUs, set this to the number of GPUs you want to split the model across (e.g., `2`).
+### Python gateway
+Edit `services/python-gateway/.env.example` → `.env`:
+```bash
+# API keys (comma-separated)
+GATEWAY_API_KEYS=your-production-key-here
+
+# Redis connection
+GATEWAY_REDIS_URL=redis://redis:6379/0
+
+# vLLM upstream (internal network)
+GATEWAY_VLLM_BASE_URL=http://smol-brain:8000/v1
+
+# Rate limiting
+GATEWAY_RATE_LIMIT_CAPACITY=120
+GATEWAY_RATE_LIMIT_REFILL_PER_SECOND=2.0
+```
+
+### Health checks
+- **vLLM**: `http://localhost:8000/health`
+- **Python gateway**: `http://localhost:8080/healthz` (liveness), `http://localhost:8080/readyz` (readiness)
+- **Prometheus metrics**: `http://localhost:8080/metrics`
+
+---
+
+## 📈 Scaling
+
+### Horizontal scaling
+1. **vLLM**: Run multiple replicas with GPU affinity, load balance via gateway
+2. **Gateways**: Stateless, scale behind load balancer (NGINX, Traefik)
+3. **Redis**: Single instance for cache/rate limiting (or Redis Cluster for high availability)
+
+### Kubernetes (HPA)
+Autoscale gateways based on CPU/memory or custom Prometheus metrics:
+```yaml
+metrics:
+- type: Resource
+  resource:
+    name: cpu
+    target:
+      type: Utilization
+      averageUtilization: 70
+- type: Pods
+  pods:
+    metric:
+      name: gateway_in_flight_requests
+    target:
+      type: AverageValue
+      averageValue: "100"
+```
 
 ---
 
 ## 🤝 Contributing
-Found a bug? Want to add support for a new hardware accelerator? PRs are always welcome. Let's make `smol-brain` even bigger.
+
+Want to add a Go or Rust gateway? Follow this structure:
+
+```bash
+services/
+├── go-gateway/
+│   ├── cmd/
+│   ├── pkg/
+│   ├── go.mod
+│   └── Dockerfile
+└── rust-gateway/
+    ├── src/
+    ├── Cargo.toml
+    └── Dockerfile
+```
+
+PRs are welcome. Let's make `smol-brain` even bigger.
 
 ## 📄 License
 MIT License. See `LICENSE` for more information.

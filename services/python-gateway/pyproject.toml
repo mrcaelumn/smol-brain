@@ -1,0 +1,73 @@
+# =============================================================================
+# smol-brain Python gateway — project metadata and tooling configuration
+# =============================================================================
+[project]
+name = "smol-brain-gateway"
+version = "1.0.0"
+description = "Async, cached, rate-limited LLM gateway over a vLLM backend."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# --- Ruff (lint + format) ----------------------------------------------------
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["app", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic, production-grade rule set.
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort (import ordering)
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "ASYNC",  # flake8-async
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "B008",  # FastAPI uses function calls (Depends(...)) in argument defaults
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests may use assert and fixtures freely.
+"tests/**" = ["B011"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# --- mypy (static typing) ----------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+
+# --- pytest ------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: fast, isolated unit tests",
+    "integration: tests that require Redis/vLLM",
+    "e2e: full end-to-end tests",
+]
+
+# --- coverage ----------------------------------------------------------------
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

@@ -1,0 +1,1 @@
+"""Test suite for smol-brain Python gateway."""

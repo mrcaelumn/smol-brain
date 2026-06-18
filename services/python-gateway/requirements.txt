@@ -1,0 +1,36 @@
+# =============================================================================
+# smol-brain gateway — production dependencies (pinned for reproducibility)
+# =============================================================================
+
+# --- Web framework & server --------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+gunicorn==23.0.0
+
+# --- Settings & validation ---------------------------------------------------
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# --- LangChain & LLM ---------------------------------------------------------
+langchain-core==0.3.28
+langchain-community==0.3.13
+langchain-openai==0.2.14
+
+# --- HTTP client (vLLM upstream) ---------------------------------------------
+httpx==0.28.1
+
+# --- Caching / Redis ---------------------------------------------------------
+redis==5.2.1
+redisvl==0.3.7
+
+# --- Resilience --------------------------------------------------------------
+tenacity==9.0.0
+
+# --- Observability -----------------------------------------------------------
+structlog==24.4.0
+prometheus-client==0.21.1
+
+# --- Optional: local embeddings for semantic cache --------------------------
+# Uncomment to use a local sentence-transformers embedding model instead of an
+# OpenAI-compatible embeddings endpoint.
+# sentence-transformers==3.3.1

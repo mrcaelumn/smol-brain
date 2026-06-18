@@ -1,0 +1,86 @@
+# Redis configuration example for smol-brain gateways
+# Place this file at infra/redis/redis.conf to override default settings.
+
+# --------------------------------------------------------------------------
+# General
+# --------------------------------------------------------------------------
+daemonize no
+supervised no
+databases 16
+
+# --------------------------------------------------------------------------
+# Memory management
+# --------------------------------------------------------------------------
+# 512MB max memory (adjust based on your cache needs)
+maxmemory 512mb
+# Evict least recently used keys when memory limit is reached
+maxmemory-policy allkeys-lru
+
+# --------------------------------------------------------------------------
+# Persistence
+# --------------------------------------------------------------------------
+# Append-only file persistence for durability
+appendonly yes
+# Sync every second (good balance between safety and performance)
+appendfsync everysec
+# AOF rewrite triggers
+auto-aof-rewrite-percentage 100
+auto-aof-rewrite-min-size 64mb
+
+# --------------------------------------------------------------------------
+# Security
+# --------------------------------------------------------------------------
+# Consider setting a password in production:
+# requirepass your-strong-password-here
+protected-mode yes
+
+# --------------------------------------------------------------------------
+# Performance
+# --------------------------------------------------------------------------
+# Enable transparent huge pages for better memory usage
+# (Linux only, requires kernel support)
+# THP support may need to be enabled on the host system
+# Disable if you see latency spikes
+# enable-thp yes
+
+# Save snapshots less frequently to reduce I/O
+save 900 1
+save 300 10
+save 60 10000
+
+# --------------------------------------------------------------------------
+# Network
+# --------------------------------------------------------------------------
+# Bind to all interfaces (container network only)
+bind 0.0.0.0
+port 6379
+tcp-backlog 511
+timeout 0
+tcp-keepalive 300
+
+# --------------------------------------------------------------------------
+# Logging
+# --------------------------------------------------------------------------
+loglevel notice
+logfile ""
+# Enable syslog for containerised logs
+# syslog-enabled yes
+# syslog-ident redis
+
+# --------------------------------------------------------------------------
+# Monitoring
+# --------------------------------------------------------------------------
+# Enable the INFO command (gateways may use this for health checks)
+# disable-thp yes  # Uncomment if THP causes issues
+
+# --------------------------------------------------------------------------
+# Clients
+# --------------------------------------------------------------------------
+# Increase max clients to handle multiple gateways
+maxclients 10000
+
+# --------------------------------------------------------------------------
+# Lua scripting
+# --------------------------------------------------------------------------
+# Rate limiter uses Lua scripts; ensure they can run
+lua-time-limit 5000

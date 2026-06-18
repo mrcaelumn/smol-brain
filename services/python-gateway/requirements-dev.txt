@@ -1,0 +1,16 @@
+# =============================================================================
+# smol-brain gateway — development & test dependencies
+# Install alongside the runtime deps:  pip install -r requirements-dev.txt
+# =============================================================================
+-r requirements.txt
+
+# --- Testing -----------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.25.2
+pytest-cov==6.0.0
+fakeredis[lua]==2.26.2     # in-memory Redis (with Lua) for fast, isolated tests
+respx==0.22.0              # mock httpx requests to the vLLM upstream
+
+# --- Lint & type checking ----------------------------------------------------
+ruff==0.9.4
+mypy==1.14.1

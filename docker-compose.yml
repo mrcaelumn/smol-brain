@@ -1,0 +1,39 @@
+services:
+  smol-brain:
+    image: vllm/vllm-openai:latest
+    container_name: smol-brain
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Token for gated models (e.g. Llama 3). Set HF_TOKEN in your .env file.
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN}
+    volumes:
+      # Persistent Hugging Face cache so model weights download only once.
+      - hf-cache:/root/.cache/huggingface
+    ipc: host
+    command:
+      - --model
+      - ${MODEL:-meta-llama/Meta-Llama-3.1-8B-Instruct}
+      - --gpu-memory-utilization
+      - "${GPU_MEMORY_UTILIZATION:-0.90}"
+      - --max-model-len
+      - "${MAX_MODEL_LEN:-4096}"
+      - --tensor-parallel-size
+      - "${TENSOR_PARALLEL_SIZE:-1}"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${GPU_COUNT:-all}
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+volumes:
+  hf-cache:
